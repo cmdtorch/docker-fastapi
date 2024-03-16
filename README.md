@@ -8,6 +8,12 @@ Ready docker-compose configuration file for deployment FastApi application with 
 $ sh setup.sh
 ```
 
+#### Create docker network `web` 
+
+```bash
+$ docker network create web
+```
+
 ## Run Containers
 
 ```bash
