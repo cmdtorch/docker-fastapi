@@ -1,0 +1,116 @@
+version: '3'
+
+services:
+
+  traefik:
+    image: traefik:latest
+    ports:
+      - 80:80
+      - 443:443
+    restart: always
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.traefik-dashboard.loadbalancer.server.port=8080
+      - traefik.http.routers.traefik-dashboard-http.entrypoints=http
+      - traefik.http.routers.traefik-dashboard-http.rule=Host(`traefik.example.com`) # Your domain
+      - traefik.docker.network=web
+      - traefik.http.routers.traefik-dashboard-https.entrypoints=https
+      - traefik.http.routers.traefik-dashboard-https.rule=Host(`traefik.example.com`) # Your domain
+      - traefik.http.routers.traefik-dashboard-https.tls=true
+      - traefik.http.routers.traefik-dashboard-https.tls.certresolver=le
+      - traefik.http.routers.traefik-dashboard-https.service=api@internal
+      - traefik.http.middlewares.https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.https-redirect.redirectscheme.permanent=true
+      - traefik.http.routers.traefik-dashboard-http.middlewares=https-redirect
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-public-certificates:/certificates
+    command:
+      - --providers.docker
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.http.address=:80
+      - --entrypoints.https.address=:443
+      - --certificatesresolvers.le.acme.email=example@gmail.com # Your email
+      - --certificatesresolvers.le.acme.storage=/certificates/acme.json
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      #- --accesslog
+      #- --log
+      - --api
+    networks:
+      - web
+
+  my_app:
+    build: ./my_app
+    container_name: my_app
+    #command: bash -c "uvicorn my_app.app:fastapp --host 0.0.0.0 --port 80 --reload"
+    restart: always
+    environment:
+      DEBUG: 1
+      DB_NAME: app_db
+      DB_HOST: postgres
+      DB_USER: postgres
+      DB_PASSWORD: YOUR_PASSWORD
+      DB_PORT: 6432
+      HOST: 'app.example.com'
+      CSRF_TRUSTED_ORIGINS: 'https://app.example.com'
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.api.loadbalancer.server.port=80
+      - traefik.http.routers.app-http_api.entrypoints=http
+      - traefik.http.routers.app-http_api.rule=Host(`app.example.com`)
+      - traefik.docker.network=web
+      - traefik.http.routers.app-https_api.entrypoints=https
+      - traefik.http.routers.app-https_api.rule=Host(`app.example.com`)
+      - traefik.http.routers.app-https_api.tls=true
+      - traefik.http.routers.app-https_api.tls.certresolver=le
+      - traefik.http.middlewares.https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.https-redirect.redirectscheme.permanent=true
+      - traefik.http.routers.app-http_api.middlewares=https-redirect
+    networks:
+      - internal
+      - web
+    depends_on:
+      - pgbouncer
+      - postgres
+    volumes:
+      - ./my_app:/my_app
+
+  postgres:
+    image: postgres:latest
+    restart: always
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: YOUR_PASSWORD
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+    networks:
+      - web
+
+  pgbouncer:
+    image: bitnami/pgbouncer:latest
+    ports:
+      - 6432:6432
+    environment:
+      - POSTGRESQL_HOST=postgres
+      - POSTGRESQL_USERNAME=postgres
+      - POSTGRESQL_PASSWORD=YOUR_PASSWORD
+      - POSTGRESQL_PORT=5432
+      - PGBOUNCER_PORT=6432
+      - PGBOUNCER_MAX_CLIENT_CONN=1000
+      - ADMIN_USERS=postgres
+      - AUTH_TYPE=scram-sha-256
+      - POOL_MODE=transaction
+    volumes:
+      - /path/to/init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - web
+
+networks:
+  web:
+    external: true
+  internal:
+    external: false
+
+volumes:
+  traefik-public-certificates:
